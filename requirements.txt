@@ -1,5 +1,5 @@
 streamlit==1.40.0
 streamlit-drawable-canvas==0.9.3
-pillow
-pandas
-numpy
+pillow==11.3.0
+pandas==2.3.3
+numpy==2.2.6
