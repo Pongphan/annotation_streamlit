@@ -2,12 +2,76 @@ import io
 import json
 import zipfile
 import hashlib
+import base64
 from typing import Any, Dict, List, Tuple
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw
+
+
+def install_drawable_canvas_streamlit_compat() -> None:
+    """Restore the Streamlit image helper expected by streamlit-drawable-canvas.
+
+    streamlit-drawable-canvas 0.9.3 calls the old private helper
+    streamlit.elements.image.image_to_url. Newer Streamlit versions moved that
+    helper to streamlit.elements.lib.image_utils and changed its width argument
+    into a LayoutConfig object.
+    """
+    import streamlit.elements.image as st_image
+
+    if hasattr(st_image, "image_to_url"):
+        return
+
+    try:
+        from streamlit.elements.lib.image_utils import image_to_url as current_image_to_url
+        from streamlit.elements.lib.layout_utils import LayoutConfig
+
+        def image_to_url(
+            image: Any,
+            width: int,
+            clamp: bool,
+            channels: str,
+            output_format: str,
+            image_id: str,
+        ) -> str:
+            return current_image_to_url(
+                image,
+                LayoutConfig(width=width),
+                clamp,
+                channels,
+                output_format,
+                image_id,
+            )
+
+    except Exception:
+        def image_to_url(
+            image: Any,
+            width: int,
+            clamp: bool,
+            channels: str,
+            output_format: str,
+            image_id: str,
+        ) -> str:
+            if not isinstance(image, Image.Image):
+                image = Image.open(image)
+            if channels:
+                image = image.convert(channels)
+
+            image_format = (output_format or "PNG").upper()
+            if image_format == "JPG":
+                image_format = "JPEG"
+
+            buffer = io.BytesIO()
+            image.save(buffer, format=image_format)
+            mime = "image/jpeg" if image_format == "JPEG" else f"image/{image_format.lower()}"
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:{mime};base64,{encoded}"
+
+    st_image.image_to_url = image_to_url
+
+
+install_drawable_canvas_streamlit_compat()
 from streamlit_drawable_canvas import st_canvas
 
 
