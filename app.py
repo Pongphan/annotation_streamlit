@@ -9,15 +9,8 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw
 
-
 def install_drawable_canvas_streamlit_compat() -> None:
-    """Restore the Streamlit image helper expected by streamlit-drawable-canvas.
 
-    streamlit-drawable-canvas 0.9.3 calls the old private helper
-    streamlit.elements.image.image_to_url. Newer Streamlit versions moved that
-    helper to streamlit.elements.lib.image_utils and changed its width argument
-    into a LayoutConfig object.
-    """
     import streamlit.elements.image as st_image
 
     if hasattr(st_image, "image_to_url"):
@@ -74,17 +67,16 @@ def install_drawable_canvas_streamlit_compat() -> None:
 install_drawable_canvas_streamlit_compat()
 from streamlit_drawable_canvas import st_canvas
 
-
 # ============================================================
 # Page configuration
 # ============================================================
 st.set_page_config(
-    page_title="YOLO Image Annotator",
+    page_title="Meinlab Image Annotator",
     page_icon="🧬",
     layout="wide"
 )
 
-st.title("🧬 YOLO Image Annotator")
+st.title("🧬 Meinlab Image Annotator")
 st.caption(
     "Upload an image, draw rectangle / polygon / crop annotations, "
     "assign class IDs, and export YOLO labels."
