@@ -72,14 +72,350 @@ from streamlit_drawable_canvas import st_canvas
 # ============================================================
 st.set_page_config(
     page_title="Meinlab Image Annotator",
-    page_icon="🧬",
+    page_icon=":dna:",
     layout="wide"
 )
 
-st.title("🧬 Meinlab Image Annotator")
-st.caption(
-    "Upload an image, draw rectangle / polygon / crop annotations, "
-    "assign class IDs, and export YOLO labels."
+THEME_CSS = """
+<style>
+:root {
+    color-scheme: light;
+    --page-bg:
+        linear-gradient(135deg,
+            rgba(255, 248, 244, 0.98) 0%,
+            rgba(241, 252, 247, 0.96) 34%,
+            rgba(238, 247, 255, 0.96) 68%,
+            rgba(255, 248, 253, 0.98) 100%);
+    --hero-bg:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.58)),
+        linear-gradient(90deg, rgba(123, 199, 196, 0.16), rgba(245, 169, 184, 0.14));
+    --sidebar-bg:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 252, 255, 0.64));
+    --glass-bg: rgba(255, 255, 255, 0.68);
+    --glass-strong: rgba(255, 255, 255, 0.86);
+    --glass-border: rgba(116, 144, 170, 0.28);
+    --ink: #24303f;
+    --heading: #1f2c3d;
+    --muted: #627183;
+    --surface-subtle: rgba(255, 255, 255, 0.62);
+    --surface-code: rgba(255, 255, 255, 0.72);
+    --input-bg: rgba(255, 255, 255, 0.72);
+    --button-bg: linear-gradient(135deg, rgba(123, 199, 196, 0.95), rgba(245, 169, 184, 0.92));
+    --button-text: #1f2c3d;
+    --button-disabled-bg: rgba(255, 255, 255, 0.54);
+    --button-disabled-text: rgba(36, 48, 63, 0.42);
+    --button-border: rgba(95, 128, 150, 0.28);
+    --button-border-hover: rgba(65, 105, 126, 0.42);
+    --badge-text: #2e5c68;
+    --canvas-border: rgba(116, 144, 170, 0.26);
+    --teal: #7bc7c4;
+    --coral: #f5a9b8;
+    --mint: #bde8d1;
+    --lilac: #c8bef5;
+    --butter: #ffe7a8;
+    --shadow: 0 18px 50px rgba(70, 83, 112, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --page-bg:
+            linear-gradient(135deg,
+                rgba(14, 20, 31, 0.99) 0%,
+                rgba(18, 40, 46, 0.98) 36%,
+                rgba(32, 27, 58, 0.98) 70%,
+                rgba(47, 28, 44, 0.99) 100%);
+        --hero-bg:
+            linear-gradient(135deg, rgba(31, 42, 60, 0.88), rgba(22, 30, 45, 0.72)),
+            linear-gradient(90deg, rgba(123, 199, 196, 0.22), rgba(245, 169, 184, 0.18));
+        --sidebar-bg:
+            linear-gradient(180deg, rgba(22, 31, 47, 0.88), rgba(21, 37, 48, 0.76));
+        --glass-bg: rgba(23, 32, 48, 0.72);
+        --glass-strong: rgba(34, 45, 63, 0.9);
+        --glass-border: rgba(194, 218, 236, 0.28);
+        --ink: #edf7ff;
+        --heading: #f7fbff;
+        --muted: #bfd0df;
+        --surface-subtle: rgba(35, 47, 67, 0.72);
+        --surface-code: rgba(14, 20, 31, 0.76);
+        --input-bg: rgba(18, 26, 40, 0.78);
+        --button-bg: linear-gradient(135deg, rgba(139, 222, 216, 0.96), rgba(255, 188, 203, 0.94));
+        --button-text: #08161d;
+        --button-disabled-bg: rgba(50, 61, 78, 0.62);
+        --button-disabled-text: rgba(237, 247, 255, 0.45);
+        --button-border: rgba(194, 218, 236, 0.30);
+        --button-border-hover: rgba(219, 238, 248, 0.48);
+        --badge-text: #d9fbff;
+        --canvas-border: rgba(194, 218, 236, 0.30);
+        --teal: #8bded8;
+        --coral: #ffbccb;
+        --mint: #bdf1dc;
+        --lilac: #d7cdfd;
+        --butter: #ffe9a8;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+    }
+}
+
+@media (prefers-contrast: more) {
+    :root {
+        --glass-border: rgba(51, 76, 96, 0.58);
+        --muted: #3b4d5d;
+        --button-border: rgba(31, 52, 68, 0.62);
+        --button-border-hover: rgba(20, 39, 54, 0.82);
+        --canvas-border: rgba(31, 52, 68, 0.62);
+        --shadow: 0 18px 46px rgba(43, 57, 78, 0.24);
+    }
+}
+
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+    :root {
+        --glass-border: rgba(231, 246, 255, 0.48);
+        --muted: #dcecff;
+        --button-border: rgba(231, 246, 255, 0.58);
+        --button-border-hover: rgba(255, 255, 255, 0.82);
+        --canvas-border: rgba(231, 246, 255, 0.58);
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.54);
+    }
+}
+
+.stApp {
+    color: var(--ink);
+    background: var(--page-bg);
+    background-attachment: fixed;
+}
+
+[data-testid="stAppViewContainer"] > .main {
+    background: transparent;
+}
+
+.main .block-container {
+    max-width: 1360px;
+    padding-top: 2.2rem;
+    padding-bottom: 4rem;
+}
+
+.app-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+    padding: 1.25rem 1.4rem;
+    border: 1px solid var(--glass-border);
+    border-left: 6px solid var(--teal);
+    border-radius: 8px;
+    background: var(--hero-bg);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(18px);
+}
+
+.app-hero h1 {
+    margin: 0;
+    color: var(--heading);
+    font-size: 2.65rem;
+    line-height: 1.08;
+    letter-spacing: 0;
+}
+
+.app-hero p {
+    margin: 0.45rem 0 0;
+    color: var(--muted);
+    font-size: 1.02rem;
+    letter-spacing: 0;
+}
+
+.app-hero__badge {
+    flex: 0 0 auto;
+    min-width: 9rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid rgba(123, 199, 196, 0.32);
+    border-radius: 8px;
+    background: var(--surface-subtle);
+    color: var(--badge-text);
+    font-weight: 700;
+    text-align: center;
+}
+
+[data-testid="stSidebar"] {
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--glass-border);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(20px);
+}
+
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+h1,
+h2,
+h3 {
+    color: var(--heading);
+    letter-spacing: 0;
+}
+
+[data-testid="stMarkdownContainer"],
+[data-testid="stWidgetLabel"],
+label,
+p,
+li {
+    color: var(--ink);
+}
+
+h2, h3 {
+    margin-top: 0.65rem;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: var(--glass-bg);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(16px);
+}
+
+div[data-testid="stFileUploader"] section {
+    border: 1px dashed var(--glass-border);
+    border-radius: 8px;
+    background: var(--surface-subtle);
+}
+
+.canvas-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin: 0.15rem 0 0.85rem;
+}
+
+.canvas-meta span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.15rem;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: var(--surface-subtle);
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.canvas-meta strong {
+    color: var(--ink);
+    margin-left: 0.3rem;
+}
+
+.stButton > button,
+.stDownloadButton > button {
+    min-height: 2.55rem;
+    border: 1px solid var(--button-border);
+    border-radius: 8px;
+    background: var(--button-bg);
+    color: var(--button-text);
+    font-weight: 750;
+    box-shadow: var(--shadow);
+    transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+    border-color: var(--button-border-hover);
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+}
+
+.stButton > button:disabled,
+.stDownloadButton > button:disabled {
+    background: var(--button-disabled-bg);
+    color: var(--button-disabled-text);
+    box-shadow: none;
+}
+
+.stTextInput input,
+.stNumberInput input,
+.stSelectbox div[data-baseweb="select"] > div,
+.stSlider div[data-testid="stTickBar"],
+.stColorPicker label + div {
+    border-radius: 8px;
+}
+
+.stTextInput input,
+.stNumberInput input,
+.stSelectbox div[data-baseweb="select"] > div {
+    border: 1px solid var(--glass-border);
+    background: var(--input-bg);
+    color: var(--ink);
+}
+
+[data-testid="stDataFrame"],
+[data-testid="stDataEditor"],
+pre,
+code {
+    border-radius: 8px;
+}
+
+[data-testid="stDataFrame"],
+[data-testid="stDataEditor"] {
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+pre {
+    border: 1px solid var(--glass-border);
+    background: var(--surface-code) !important;
+    color: var(--ink) !important;
+}
+
+canvas {
+    border-radius: 8px;
+    border: 1px solid var(--canvas-border);
+    box-shadow: var(--shadow);
+}
+
+[data-testid="stAlert"] {
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--surface-code);
+    color: var(--ink);
+}
+
+details {
+    border-radius: 8px !important;
+}
+
+@media (max-width: 700px) {
+    .main .block-container {
+        padding-top: 1rem;
+    }
+
+    .app-hero {
+        display: block;
+        padding: 1rem;
+    }
+
+    .app-hero h1 {
+        font-size: 2.05rem;
+    }
+
+    .app-hero__badge {
+        margin-top: 0.85rem;
+        text-align: left;
+    }
+}
+</style>
+"""
+
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+st.markdown(
+    """
+    <section class="app-hero">
+        <div>
+            <h1>Meinlab Image Annotator</h1>
+            <p>YOLO image annotation workspace</p>
+        </div>
+        <div class="app-hero__badge">Ready</div>
+    </section>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -108,6 +444,23 @@ def pil_to_png_bytes(image: Image.Image) -> bytes:
 
 def text_to_bytes(text: str) -> bytes:
     return text.encode("utf-8")
+
+
+def hex_to_rgba(hex_color: str, alpha: float) -> str:
+    normalized = hex_color.strip().lstrip("#")
+
+    if len(normalized) == 3:
+        normalized = "".join([channel * 2 for channel in normalized])
+
+    try:
+        red = int(normalized[0:2], 16)
+        green = int(normalized[2:4], 16)
+        blue = int(normalized[4:6], 16)
+    except (TypeError, ValueError):
+        red, green, blue = 123, 199, 196
+
+    alpha = max(0, min(alpha, 1))
+    return f"rgba({red}, {green}, {blue}, {alpha})"
 
 
 def resize_for_display(
@@ -530,10 +883,11 @@ st.sidebar.info(
 # ============================================================
 # Image upload
 # ============================================================
-uploaded_file = st.file_uploader(
-    "Upload image",
-    type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
-)
+with st.container(border=True):
+    uploaded_file = st.file_uploader(
+        "Upload image",
+        type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
+    )
 
 if uploaded_file is None:
     st.warning("Please upload an image to start annotation.")
@@ -555,41 +909,51 @@ base_filename = uploaded_file.name.rsplit(".", 1)[0]
 # ============================================================
 # Canvas
 # ============================================================
-left_col, right_col = st.columns([3, 1])
+left_col, right_col = st.columns([3, 1], gap="large")
+canvas_fill_color = hex_to_rgba(selected_color, 0.18)
 
 with left_col:
-    st.subheader("Image Annotation Canvas")
-    st.write(f"Original image size: `{original_w} × {original_h}` pixels")
-    st.write(f"Display image size: `{display_w} × {display_h}` pixels")
+    with st.container(border=True):
+        st.subheader("Image Annotation Canvas")
+        st.markdown(
+            f"""
+            <div class="canvas-meta">
+                <span>Original <strong>{original_w} x {original_h}</strong></span>
+                <span>Display <strong>{display_w} x {display_h}</strong></span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    canvas_result = st_canvas(
-        fill_color="rgba(255, 0, 0, 0.15)",
-        stroke_width=stroke_width,
-        stroke_color=selected_color,
-        background_image=display_image,
-        update_streamlit=True,
-        height=display_h,
-        width=display_w,
-        drawing_mode=drawing_mode,
-        key="annotation_canvas",
-    )
+        canvas_result = st_canvas(
+            fill_color=canvas_fill_color,
+            stroke_width=stroke_width,
+            stroke_color=selected_color,
+            background_image=display_image,
+            update_streamlit=True,
+            height=display_h,
+            width=display_w,
+            drawing_mode=drawing_mode,
+            key="annotation_canvas",
+        )
 
 with right_col:
-    st.subheader("Current Drawing Mode")
-    st.markdown(f"**New object class ID:** `{selected_class_id}`")
-    st.markdown(f"**New object class name:** `{selected_class_name}`")
-    st.markdown(f"**New object type:** `{selected_annotation_type}`")
-    st.color_picker(
-        "Active draw color",
-        value=selected_color,
-        disabled=True
-    )
+    with st.container(border=True):
+        st.subheader("Current Drawing Mode")
+        st.markdown(f"**New object class ID:** `{selected_class_id}`")
+        st.markdown(f"**New object class name:** `{selected_class_name}`")
+        st.markdown(f"**New object type:** `{selected_annotation_type}`")
+        st.color_picker(
+            "Active draw color",
+            value=selected_color,
+            disabled=True
+        )
 
-    st.subheader("YOLO Format")
-    if selected_annotation_type in ["rectangle", "crop image"]:
-        st.code("class_id x_center y_center width height", language="text")
-    else:
-        st.code("class_id x1 y1 x2 y2 x3 y3 ...", language="text")
+        st.subheader("YOLO Format")
+        if selected_annotation_type in ["rectangle", "crop image"]:
+            st.code("class_id x_center y_center width height", language="text")
+        else:
+            st.code("class_id x1 y1 x2 y2 x3 y3 ...", language="text")
 
 
 # ============================================================
