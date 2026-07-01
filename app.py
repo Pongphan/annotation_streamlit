@@ -65,7 +65,80 @@ def install_drawable_canvas_streamlit_compat() -> None:
 
 
 install_drawable_canvas_streamlit_compat()
-from streamlit_drawable_canvas import st_canvas
+import streamlit_drawable_canvas as drawable_canvas
+
+
+def image_to_data_url(image: Image.Image) -> str:
+    """
+    Convert a Pillow image to an inline PNG data URL.
+
+    Streamlit Cloud can be brittle with streamlit-drawable-canvas background
+    images because that package relies on Streamlit's internal media URLs.
+    Passing a data URL directly to the component keeps the uploaded image
+    available inside the canvas iframe.
+    """
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def st_canvas(
+    fill_color: str = "#eee",
+    stroke_width: int = 20,
+    stroke_color: str = "black",
+    background_color: str = "",
+    background_image: Image.Image = None,
+    update_streamlit: bool = True,
+    height: int = 400,
+    width: int = 600,
+    drawing_mode: str = "freedraw",
+    initial_drawing: Dict[str, Any] = None,
+    display_toolbar: bool = True,
+    point_display_radius: int = 3,
+    key: str = None,
+):
+    background_image_url = None
+
+    if background_image is not None:
+        background_image = background_image.copy()
+        target_size = (int(width), int(height))
+
+        if background_image.size != target_size:
+            background_image = background_image.resize(target_size)
+
+        background_image_url = image_to_data_url(background_image)
+        background_color = ""
+
+    drawing = {"version": "4.4.0"} if initial_drawing is None else dict(initial_drawing)
+    drawing["background"] = background_color
+
+    component_value = drawable_canvas._component_func(
+        fillColor=fill_color,
+        strokeWidth=stroke_width,
+        strokeColor=stroke_color,
+        backgroundColor=background_color,
+        backgroundImageURL=background_image_url,
+        realtimeUpdateStreamlit=update_streamlit and (drawing_mode != "polygon"),
+        canvasHeight=height,
+        canvasWidth=width,
+        drawingMode=drawing_mode,
+        initialDrawing=drawing,
+        displayToolbar=display_toolbar,
+        displayRadius=point_display_radius,
+        key=key,
+        default=None,
+    )
+
+    if component_value is None:
+        return drawable_canvas.CanvasResult()
+
+    return drawable_canvas.CanvasResult(
+        drawable_canvas.np.asarray(
+            drawable_canvas._data_url_to_image(component_value["data"])
+        ),
+        component_value["raw"],
+    )
 
 # ============================================================
 # Page configuration
@@ -82,38 +155,38 @@ THEME_CSS = """
     color-scheme: light;
     --page-bg:
         linear-gradient(135deg,
-            rgba(255, 248, 244, 0.98) 0%,
-            rgba(241, 252, 247, 0.96) 34%,
-            rgba(238, 247, 255, 0.96) 68%,
-            rgba(255, 248, 253, 0.98) 100%);
+            rgba(255, 241, 246, 0.98) 0%,
+            rgba(238, 252, 244, 0.97) 32%,
+            rgba(237, 247, 255, 0.97) 66%,
+            rgba(248, 241, 255, 0.98) 100%);
     --hero-bg:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.58)),
-        linear-gradient(90deg, rgba(123, 199, 196, 0.16), rgba(245, 169, 184, 0.14));
+        linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66)),
+        linear-gradient(90deg, rgba(174, 226, 219, 0.30), rgba(255, 206, 219, 0.26), rgba(211, 203, 246, 0.24));
     --sidebar-bg:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(247, 252, 255, 0.64));
-    --glass-bg: rgba(255, 255, 255, 0.68);
-    --glass-strong: rgba(255, 255, 255, 0.86);
-    --glass-border: rgba(116, 144, 170, 0.28);
-    --ink: #24303f;
-    --heading: #1f2c3d;
-    --muted: #627183;
-    --surface-subtle: rgba(255, 255, 255, 0.62);
-    --surface-code: rgba(255, 255, 255, 0.72);
-    --input-bg: rgba(255, 255, 255, 0.72);
-    --button-bg: linear-gradient(135deg, rgba(123, 199, 196, 0.95), rgba(245, 169, 184, 0.92));
-    --button-text: #1f2c3d;
-    --button-disabled-bg: rgba(255, 255, 255, 0.54);
-    --button-disabled-text: rgba(36, 48, 63, 0.42);
-    --button-border: rgba(95, 128, 150, 0.28);
-    --button-border-hover: rgba(65, 105, 126, 0.42);
-    --badge-text: #2e5c68;
-    --canvas-border: rgba(116, 144, 170, 0.26);
-    --teal: #7bc7c4;
-    --coral: #f5a9b8;
-    --mint: #bde8d1;
-    --lilac: #c8bef5;
-    --butter: #ffe7a8;
-    --shadow: 0 18px 50px rgba(70, 83, 112, 0.14);
+        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(246, 251, 255, 0.72));
+    --glass-bg: rgba(255, 255, 255, 0.74);
+    --glass-strong: rgba(255, 255, 255, 0.92);
+    --glass-border: rgba(177, 199, 219, 0.34);
+    --ink: #334155;
+    --heading: #25324a;
+    --muted: #6b7c93;
+    --surface-subtle: rgba(255, 255, 255, 0.70);
+    --surface-code: rgba(255, 255, 255, 0.82);
+    --input-bg: rgba(255, 255, 255, 0.84);
+    --button-bg: linear-gradient(135deg, rgba(174, 226, 219, 0.98), rgba(255, 206, 219, 0.98), rgba(255, 232, 176, 0.95));
+    --button-text: #263449;
+    --button-disabled-bg: rgba(255, 255, 255, 0.58);
+    --button-disabled-text: rgba(51, 65, 85, 0.42);
+    --button-border: rgba(166, 189, 212, 0.42);
+    --button-border-hover: rgba(125, 156, 187, 0.56);
+    --badge-text: #40706c;
+    --canvas-border: rgba(177, 199, 219, 0.36);
+    --teal: #aee2db;
+    --coral: #ffcedb;
+    --mint: #c9efd9;
+    --lilac: #d3cbf6;
+    --butter: #ffe8b0;
+    --shadow: 0 18px 44px rgba(108, 121, 150, 0.13);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -121,38 +194,38 @@ THEME_CSS = """
         color-scheme: dark;
         --page-bg:
             linear-gradient(135deg,
-                rgba(14, 20, 31, 0.99) 0%,
-                rgba(18, 40, 46, 0.98) 36%,
-                rgba(32, 27, 58, 0.98) 70%,
-                rgba(47, 28, 44, 0.99) 100%);
+                rgba(7, 8, 12, 0.99) 0%,
+                rgba(16, 18, 26, 0.99) 34%,
+                rgba(13, 23, 25, 0.98) 68%,
+                rgba(24, 20, 32, 0.99) 100%);
         --hero-bg:
-            linear-gradient(135deg, rgba(31, 42, 60, 0.88), rgba(22, 30, 45, 0.72)),
-            linear-gradient(90deg, rgba(123, 199, 196, 0.22), rgba(245, 169, 184, 0.18));
+            linear-gradient(135deg, rgba(25, 28, 38, 0.94), rgba(11, 13, 18, 0.82)),
+            linear-gradient(90deg, rgba(174, 226, 219, 0.16), rgba(255, 206, 219, 0.13), rgba(211, 203, 246, 0.14));
         --sidebar-bg:
-            linear-gradient(180deg, rgba(22, 31, 47, 0.88), rgba(21, 37, 48, 0.76));
-        --glass-bg: rgba(23, 32, 48, 0.72);
-        --glass-strong: rgba(34, 45, 63, 0.9);
-        --glass-border: rgba(194, 218, 236, 0.28);
-        --ink: #edf7ff;
-        --heading: #f7fbff;
-        --muted: #bfd0df;
-        --surface-subtle: rgba(35, 47, 67, 0.72);
-        --surface-code: rgba(14, 20, 31, 0.76);
-        --input-bg: rgba(18, 26, 40, 0.78);
-        --button-bg: linear-gradient(135deg, rgba(139, 222, 216, 0.96), rgba(255, 188, 203, 0.94));
-        --button-text: #08161d;
-        --button-disabled-bg: rgba(50, 61, 78, 0.62);
-        --button-disabled-text: rgba(237, 247, 255, 0.45);
-        --button-border: rgba(194, 218, 236, 0.30);
-        --button-border-hover: rgba(219, 238, 248, 0.48);
-        --badge-text: #d9fbff;
-        --canvas-border: rgba(194, 218, 236, 0.30);
-        --teal: #8bded8;
-        --coral: #ffbccb;
-        --mint: #bdf1dc;
-        --lilac: #d7cdfd;
-        --butter: #ffe9a8;
-        --shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+            linear-gradient(180deg, rgba(22, 25, 35, 0.92), rgba(14, 20, 24, 0.82));
+        --glass-bg: rgba(20, 23, 31, 0.82);
+        --glass-strong: rgba(27, 31, 41, 0.94);
+        --glass-border: rgba(214, 226, 240, 0.22);
+        --ink: #f3f6fb;
+        --heading: #ffffff;
+        --muted: #c6d1de;
+        --surface-subtle: rgba(30, 35, 45, 0.78);
+        --surface-code: rgba(11, 14, 20, 0.86);
+        --input-bg: rgba(16, 20, 29, 0.88);
+        --button-bg: linear-gradient(135deg, rgba(174, 226, 219, 0.94), rgba(255, 206, 219, 0.94), rgba(255, 232, 176, 0.90));
+        --button-text: #101720;
+        --button-disabled-bg: rgba(48, 54, 67, 0.66);
+        --button-disabled-text: rgba(243, 246, 251, 0.48);
+        --button-border: rgba(214, 226, 240, 0.28);
+        --button-border-hover: rgba(244, 248, 255, 0.48);
+        --badge-text: #d8fff8;
+        --canvas-border: rgba(214, 226, 240, 0.28);
+        --teal: #aee2db;
+        --coral: #ffcedb;
+        --mint: #c9efd9;
+        --lilac: #d3cbf6;
+        --butter: #ffe8b0;
+        --shadow: 0 18px 48px rgba(0, 0, 0, 0.44);
     }
 }
 
@@ -169,12 +242,12 @@ THEME_CSS = """
 
 @media (prefers-color-scheme: dark) and (prefers-contrast: more) {
     :root {
-        --glass-border: rgba(231, 246, 255, 0.48);
-        --muted: #dcecff;
-        --button-border: rgba(231, 246, 255, 0.58);
+        --glass-border: rgba(245, 250, 255, 0.58);
+        --muted: #eef6ff;
+        --button-border: rgba(245, 250, 255, 0.62);
         --button-border-hover: rgba(255, 255, 255, 0.82);
-        --canvas-border: rgba(231, 246, 255, 0.58);
-        --shadow: 0 18px 50px rgba(0, 0, 0, 0.54);
+        --canvas-border: rgba(245, 250, 255, 0.62);
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.60);
     }
 }
 
@@ -228,7 +301,7 @@ THEME_CSS = """
     flex: 0 0 auto;
     min-width: 9rem;
     padding: 0.7rem 0.9rem;
-    border: 1px solid rgba(123, 199, 196, 0.32);
+    border: 1px solid rgba(174, 226, 219, 0.72);
     border-radius: 8px;
     background: var(--surface-subtle);
     color: var(--badge-text);
@@ -236,11 +309,10 @@ THEME_CSS = """
     text-align: center;
 }
 
-[data-testid="stSidebar"] {
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--glass-border);
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(20px);
+[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: none;
 }
 
 [data-testid="stSidebar"] h1,
@@ -767,53 +839,59 @@ def build_zip_package(
 
 
 # ============================================================
-# Sidebar: class configuration
+# Class configuration
 # ============================================================
-st.sidebar.header("1. Class Configuration")
+with st.container(border=True):
+    st.header("1. Class Configuration")
 
-num_classes = st.sidebar.number_input(
-    "Number of classes",
-    min_value=1,
-    max_value=50,
-    value=len(st.session_state.classes),
-    step=1
-)
-
-while len(st.session_state.classes) < num_classes:
-    new_id = len(st.session_state.classes)
-    st.session_state.classes.append(
-        {
-            "class_id": new_id,
-            "class_name": f"class_{new_id}",
-            "color": "#FFFF00",
-        }
+    num_classes = st.number_input(
+        "Number of classes",
+        min_value=1,
+        max_value=50,
+        value=len(st.session_state.classes),
+        step=1
     )
 
-while len(st.session_state.classes) > num_classes:
-    st.session_state.classes.pop()
-
-for i in range(num_classes):
-    with st.sidebar.expander(f"Class {i}", expanded=True):
-        st.session_state.classes[i]["class_id"] = st.number_input(
-            f"Class label ID {i}",
-            min_value=0,
-            max_value=999,
-            value=int(st.session_state.classes[i]["class_id"]),
-            step=1,
-            key=f"class_id_{i}"
+    while len(st.session_state.classes) < num_classes:
+        new_id = len(st.session_state.classes)
+        st.session_state.classes.append(
+            {
+                "class_id": new_id,
+                "class_name": f"class_{new_id}",
+                "color": "#FFFF00",
+            }
         )
 
-        st.session_state.classes[i]["class_name"] = st.text_input(
-            f"Class name {i}",
-            value=st.session_state.classes[i]["class_name"],
-            key=f"class_name_{i}"
-        )
+    while len(st.session_state.classes) > num_classes:
+        st.session_state.classes.pop()
 
-        st.session_state.classes[i]["color"] = st.color_picker(
-            f"Draw color {i}",
-            value=st.session_state.classes[i]["color"],
-            key=f"class_color_{i}"
-        )
+    for i in range(num_classes):
+        with st.expander(f"Class {i}", expanded=True):
+            id_col, name_col, color_col = st.columns([1, 2, 1])
+
+            with id_col:
+                st.session_state.classes[i]["class_id"] = st.number_input(
+                    f"Class label ID {i}",
+                    min_value=0,
+                    max_value=999,
+                    value=int(st.session_state.classes[i]["class_id"]),
+                    step=1,
+                    key=f"class_id_{i}"
+                )
+
+            with name_col:
+                st.session_state.classes[i]["class_name"] = st.text_input(
+                    f"Class name {i}",
+                    value=st.session_state.classes[i]["class_name"],
+                    key=f"class_name_{i}"
+                )
+
+            with color_col:
+                st.session_state.classes[i]["color"] = st.color_picker(
+                    f"Draw color {i}",
+                    value=st.session_state.classes[i]["color"],
+                    key=f"class_color_{i}"
+                )
 
 class_config = {}
 
@@ -832,62 +910,87 @@ class_options = {
 
 
 # ============================================================
-# Sidebar: annotation configuration
-# ============================================================
-st.sidebar.header("2. Annotation Settings")
-
-selected_class_label = st.sidebar.selectbox(
-    "Active class for newly drawn objects",
-    options=list(class_options.keys())
-)
-
-selected_class_id = class_options[selected_class_label]
-selected_class_name = class_config[selected_class_id]["name"]
-selected_color = class_config[selected_class_id]["color"]
-
-selected_annotation_type = st.sidebar.selectbox(
-    "Annotation type for newly drawn objects",
-    options=["rectangle", "polygon", "crop image"]
-)
-
-if selected_annotation_type == "polygon":
-    drawing_mode = "polygon"
-else:
-    drawing_mode = "rect"
-
-stroke_width = st.sidebar.slider(
-    "Stroke width",
-    min_value=1,
-    max_value=10,
-    value=3
-)
-
-display_width = st.sidebar.slider(
-    "Display width",
-    min_value=400,
-    max_value=1600,
-    value=1000,
-    step=100
-)
-
-if st.sidebar.button("Reset object metadata"):
-    st.session_state.object_meta = {}
-    st.sidebar.success("Object metadata has been reset.")
-
-st.sidebar.info(
-    "Class ID and annotation type are saved per drawn object. "
-    "Changing the active class will only affect new objects."
-)
-
-
-# ============================================================
 # Image upload
 # ============================================================
 with st.container(border=True):
+    st.header("2. Upload Image")
     uploaded_file = st.file_uploader(
         "Upload image",
         type=["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
     )
+
+
+# ============================================================
+# Annotation configuration
+# ============================================================
+with st.container(border=True):
+    st.header("3. Annotation Settings")
+    settings_col, status_col = st.columns([2, 1], gap="large")
+
+    with settings_col:
+        selected_class_label = st.selectbox(
+            "Active class for newly drawn objects",
+            options=list(class_options.keys())
+        )
+
+        selected_annotation_type = st.selectbox(
+            "Annotation type for newly drawn objects",
+            options=["rectangle", "polygon", "crop image"]
+        )
+
+        control_col1, control_col2 = st.columns(2)
+
+        with control_col1:
+            stroke_width = st.slider(
+                "Stroke width",
+                min_value=1,
+                max_value=10,
+                value=3
+            )
+
+        with control_col2:
+            display_width = st.slider(
+                "Display width",
+                min_value=400,
+                max_value=1600,
+                value=1000,
+                step=100
+            )
+
+        if st.button("Reset object metadata"):
+            st.session_state.object_meta = {}
+            st.success("Object metadata has been reset.")
+
+        st.info(
+            "Class ID and annotation type are saved per drawn object. "
+            "Changing the active class will only affect new objects."
+        )
+
+    selected_class_id = class_options[selected_class_label]
+    selected_class_name = class_config[selected_class_id]["name"]
+    selected_color = class_config[selected_class_id]["color"]
+
+    if selected_annotation_type == "polygon":
+        drawing_mode = "polygon"
+    else:
+        drawing_mode = "rect"
+
+    with status_col:
+        st.subheader("Current Drawing Mode")
+        st.markdown(f"**New object class ID:** `{selected_class_id}`")
+        st.markdown(f"**New object class name:** `{selected_class_name}`")
+        st.markdown(f"**New object type:** `{selected_annotation_type}`")
+        st.color_picker(
+            "Active draw color",
+            value=selected_color,
+            disabled=True
+        )
+
+        st.subheader("YOLO Format")
+        if selected_annotation_type in ["rectangle", "crop image"]:
+            st.code("class_id x_center y_center width height", language="text")
+        else:
+            st.code("class_id x1 y1 x2 y2 x3 y3 ...", language="text")
 
 if uploaded_file is None:
     st.warning("Please upload an image to start annotation.")
@@ -909,51 +1012,31 @@ base_filename = uploaded_file.name.rsplit(".", 1)[0]
 # ============================================================
 # Canvas
 # ============================================================
-left_col, right_col = st.columns([3, 1], gap="large")
 canvas_fill_color = hex_to_rgba(selected_color, 0.18)
 
-with left_col:
-    with st.container(border=True):
-        st.subheader("Image Annotation Canvas")
-        st.markdown(
-            f"""
-            <div class="canvas-meta">
-                <span>Original <strong>{original_w} x {original_h}</strong></span>
-                <span>Display <strong>{display_w} x {display_h}</strong></span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+with st.container(border=True):
+    st.subheader("3.1 Image Annotation Canvas")
+    st.markdown(
+        f"""
+        <div class="canvas-meta">
+            <span>Original <strong>{original_w} x {original_h}</strong></span>
+            <span>Display <strong>{display_w} x {display_h}</strong></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        canvas_result = st_canvas(
-            fill_color=canvas_fill_color,
-            stroke_width=stroke_width,
-            stroke_color=selected_color,
-            background_image=display_image,
-            update_streamlit=True,
-            height=display_h,
-            width=display_w,
-            drawing_mode=drawing_mode,
-            key="annotation_canvas",
-        )
-
-with right_col:
-    with st.container(border=True):
-        st.subheader("Current Drawing Mode")
-        st.markdown(f"**New object class ID:** `{selected_class_id}`")
-        st.markdown(f"**New object class name:** `{selected_class_name}`")
-        st.markdown(f"**New object type:** `{selected_annotation_type}`")
-        st.color_picker(
-            "Active draw color",
-            value=selected_color,
-            disabled=True
-        )
-
-        st.subheader("YOLO Format")
-        if selected_annotation_type in ["rectangle", "crop image"]:
-            st.code("class_id x_center y_center width height", language="text")
-        else:
-            st.code("class_id x1 y1 x2 y2 x3 y3 ...", language="text")
+    canvas_result = st_canvas(
+        fill_color=canvas_fill_color,
+        stroke_width=stroke_width,
+        stroke_color=selected_color,
+        background_image=display_image,
+        update_streamlit=True,
+        height=display_h,
+        width=display_w,
+        drawing_mode=drawing_mode,
+        key="annotation_canvas",
+    )
 
 
 # ============================================================
@@ -995,7 +1078,7 @@ if canvas_result.json_data is not None:
 # ============================================================
 # Editable metadata table
 # ============================================================
-st.subheader("Annotation Class and Type Assignment")
+st.subheader("3.2 Annotation Class and Type Assignment")
 
 if len(raw_objects) > 0:
     meta_records = []
@@ -1141,7 +1224,7 @@ for item in raw_objects:
 # ============================================================
 # Annotation output table
 # ============================================================
-st.subheader("Annotation Output Table")
+st.subheader("3.3Annotation Output Table")
 
 table_records = []
 
@@ -1212,7 +1295,7 @@ crop_outputs = crop_regions(
 # ============================================================
 # Preview YOLO label
 # ============================================================
-st.subheader("YOLO Label Preview")
+st.subheader("3.4 YOLO Label Preview")
 
 if label_text.strip():
     st.code(label_text, language="text")
@@ -1223,7 +1306,7 @@ else:
 # ============================================================
 # Preview annotated image
 # ============================================================
-st.subheader("Annotated Image Preview")
+st.subheader("3.5 Annotated Image Preview")
 st.image(
     annotated_image,
     caption="Annotated image",
@@ -1234,7 +1317,7 @@ st.image(
 # ============================================================
 # Download outputs
 # ============================================================
-st.subheader("Download Outputs")
+st.subheader("3.6 Download Outputs")
 
 zip_bytes = build_zip_package(
     base_filename=base_filename,
