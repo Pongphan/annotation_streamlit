@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas-bg: #ffffff;
+      --canvas-border: rgba(177, 199, 219, 0.65);
+      --toolbar-bg: rgba(255, 255, 255, 0.78);
+      --toolbar-border: rgba(177, 199, 219, 0.42);
+      --text: #334155;
+      --muted: #6b7c93;
+      --button-bg: linear-gradient(135deg, #aee2db, #ffcedb, #ffe8b0);
+      --button-text: #263449;
+      --button-border: rgba(166, 189, 212, 0.50);
+      --selection: #ffe8b0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --canvas-bg: #0b0d12;
+        --canvas-border: rgba(214, 226, 240, 0.34);
+        --toolbar-bg: rgba(20, 23, 31, 0.82);
+        --toolbar-border: rgba(214, 226, 240, 0.26);
+        --text: #f3f6fb;
+        --muted: #c6d1de;
+        --button-bg: linear-gradient(135deg, #aee2db, #ffcedb, #ffe8b0);
+        --button-text: #101720;
+        --button-border: rgba(244, 248, 255, 0.34);
+        --selection: #ffe8b0;
+      }
+    }
+
+    html,
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 42px;
+      margin: 0 0 0.6rem;
+      padding: 0.4rem;
+      border: 1px solid var(--toolbar-border);
+      border-radius: 8px;
+      background: var(--toolbar-bg);
+      box-sizing: border-box;
+    }
+
+    .toolbar[hidden] {
+      display: none;
+    }
+
+    button {
+      min-height: 32px;
+      padding: 0.35rem 0.7rem;
+      border: 1px solid var(--button-border);
+      border-radius: 8px;
+      background: var(--button-bg);
+      color: var(--button-text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+
+    .status {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 0.86rem;
+      white-space: nowrap;
+    }
+
+    .canvas-wrap {
+      max-width: 100%;
+      overflow: auto;
+    }
+
+    canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--canvas-border);
+      border-radius: 8px;
+      background: var(--canvas-bg);
+      box-sizing: border-box;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar" class="toolbar">
+    <button id="undoButton" type="button" title="Undo last object">Undo</button>
+    <button id="deleteButton" type="button" title="Delete selected object">Delete</button>
+    <button id="finishButton" type="button" title="Finish polygon">Finish</button>
+    <button id="clearButton" type="button" title="Clear all objects">Clear</button>
+    <span id="status" class="status"></span>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="annotationCanvas"></canvas>
+  </div>
+
+  <script>
+    const Streamlit = {
+      RENDER_EVENT: "streamlit:render",
+      setComponentReady() {
+        postStreamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+      },
+      setFrameHeight(height) {
+        postStreamlitMessage("streamlit:setFrameHeight", { height });
+      },
+      setComponentValue(value) {
+        postStreamlitMessage("streamlit:setComponentValue", {
+          value,
+          dataType: "json",
+        });
+      },
+    };
+
+    function postStreamlitMessage(type, data) {
+      window.parent.postMessage(
+        {
+          isStreamlitMessage: true,
+          type,
+          ...data,
+        },
+        "*"
+      );
+    }
+
+    const canvas = document.getElementById("annotationCanvas");
+    const ctx = canvas.getContext("2d");
+    const toolbar = document.getElementById("toolbar");
+    const statusEl = document.getElementById("status");
+    const undoButton = document.getElementById("undoButton");
+    const deleteButton = document.getElementById("deleteButton");
+    const finishButton = document.getElementById("finishButton");
+    const clearButton = document.getElementById("clearButton");
+
+    let args = {};
+    let objects = [];
+    let backgroundImage = null;
+    let backgroundUrl = "";
+    let componentConfig = "";
+    let selectedIndex = -1;
+    let pointerIsDown = false;
+    let startPoint = null;
+    let draftRect = null;
+    let polygonDraft = [];
+    let hoverPoint = null;
+
+    function onRender(event) {
+      args = event.data.args || {};
+      applyTheme(event.data.theme || {});
+
+      const width = Number(args.canvasWidth || 600);
+      const height = Number(args.canvasHeight || 400);
+      const nextConfig = `${args.backgroundImageURL || ""}:${width}:${height}`;
+
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      toolbar.hidden = args.displayToolbar === false;
+
+      if (nextConfig !== componentConfig) {
+        objects = normalizeObjects(args.initialDrawing);
+        selectedIndex = -1;
+        polygonDraft = [];
+        hoverPoint = null;
+        componentConfig = nextConfig;
+      }
+
+      loadBackground(args.backgroundImageURL || "");
+      updateToolbar();
+      redraw();
+      updateFrameHeight();
+    }
+
+    function applyTheme(theme) {
+      if (!theme || !theme.base) {
+        return;
+      }
+
+      document.documentElement.style.colorScheme = theme.base;
+    }
+
+    function normalizeObjects(initialDrawing) {
+      if (!initialDrawing || !Array.isArray(initialDrawing.objects)) {
+        return [];
+      }
+
+      return initialDrawing.objects
+        .filter((obj) => obj && (obj.type === "rect" || obj.type === "polygon"))
+        .map((obj) => {
+          if (obj.type === "rect") {
+            return {
+              type: "rect",
+              left: Number(obj.left || 0),
+              top: Number(obj.top || 0),
+              width: Math.max(0, Number(obj.width || 0)),
+              height: Math.max(0, Number(obj.height || 0)),
+              scaleX: Number(obj.scaleX || 1),
+              scaleY: Number(obj.scaleY || 1),
+              fill: obj.fill || args.fillColor || "rgba(174, 226, 219, 0.18)",
+              stroke: obj.stroke || args.strokeColor || "#aee2db",
+              strokeWidth: Number(obj.strokeWidth || args.strokeWidth || 3),
+            };
+          }
+
+          return {
+            type: "polygon",
+            left: Number(obj.left || 0),
+            top: Number(obj.top || 0),
+            scaleX: Number(obj.scaleX || 1),
+            scaleY: Number(obj.scaleY || 1),
+            points: Array.isArray(obj.points)
+              ? obj.points.map((point) => ({
+                  x: Number(point.x || 0),
+                  y: Number(point.y || 0),
+                }))
+              : [],
+            fill: obj.fill || args.fillColor || "rgba(174, 226, 219, 0.18)",
+            stroke: obj.stroke || args.strokeColor || "#aee2db",
+            strokeWidth: Number(obj.strokeWidth || args.strokeWidth || 3),
+          };
+        });
+    }
+
+    function loadBackground(url) {
+      if (url === backgroundUrl) {
+        return;
+      }
+
+      backgroundUrl = url;
+      backgroundImage = null;
+
+      if (!url) {
+        redraw();
+        return;
+      }
+
+      const image = new Image();
+      image.onload = () => {
+        backgroundImage = image;
+        redraw();
+      };
+      image.onerror = () => {
+        backgroundImage = null;
+        redraw();
+      };
+      image.src = url;
+    }
+
+    function updateFrameHeight() {
+      const toolbarHeight = toolbar.hidden ? 0 : toolbar.offsetHeight + 10;
+      Streamlit.setFrameHeight(canvas.height + toolbarHeight + 8);
+    }
+
+    function getPointerPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) * canvas.width) / rect.width;
+      const y = ((event.clientY - rect.top) * canvas.height) / rect.height;
+
+      return {
+        x: Math.max(0, Math.min(canvas.width, x)),
+        y: Math.max(0, Math.min(canvas.height, y)),
+      };
+    }
+
+    function currentStrokeWidth() {
+      return Number(args.strokeWidth || 3);
+    }
+
+    function makeRectObject(first, second) {
+      const left = Math.min(first.x, second.x);
+      const top = Math.min(first.y, second.y);
+      const width = Math.abs(second.x - first.x);
+      const height = Math.abs(second.y - first.y);
+
+      return {
+        type: "rect",
+        left,
+        top,
+        width,
+        height,
+        scaleX: 1,
+        scaleY: 1,
+        fill: args.fillColor || "rgba(174, 226, 219, 0.18)",
+        stroke: args.strokeColor || "#aee2db",
+        strokeWidth: currentStrokeWidth(),
+      };
+    }
+
+    function makePolygonObject(points) {
+      return {
+        type: "polygon",
+        left: 0,
+        top: 0,
+        scaleX: 1,
+        scaleY: 1,
+        points: points.map((point) => ({ x: point.x, y: point.y })),
+        fill: args.fillColor || "rgba(174, 226, 219, 0.18)",
+        stroke: args.strokeColor || "#aee2db",
+        strokeWidth: currentStrokeWidth(),
+      };
+    }
+
+    function drawObject(obj, isSelected) {
+      ctx.save();
+      ctx.lineWidth = Math.max(1, Number(obj.strokeWidth || currentStrokeWidth()));
+      ctx.strokeStyle = obj.stroke || args.strokeColor || "#aee2db";
+      ctx.fillStyle = obj.fill || args.fillColor || "rgba(174, 226, 219, 0.18)";
+
+      if (isSelected) {
+        ctx.setLineDash([8, 5]);
+        ctx.lineWidth += 1;
+        ctx.strokeStyle = getComputedStyle(document.documentElement)
+          .getPropertyValue("--selection")
+          .trim() || "#ffe8b0";
+      }
+
+      if (obj.type === "rect") {
+        ctx.beginPath();
+        ctx.rect(obj.left, obj.top, obj.width * (obj.scaleX || 1), obj.height * (obj.scaleY || 1));
+        ctx.fill();
+        ctx.stroke();
+      } else if (obj.type === "polygon" && obj.points.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(obj.left + obj.points[0].x * (obj.scaleX || 1), obj.top + obj.points[0].y * (obj.scaleY || 1));
+
+        for (let i = 1; i < obj.points.length; i += 1) {
+          ctx.lineTo(obj.left + obj.points[i].x * (obj.scaleX || 1), obj.top + obj.points[i].y * (obj.scaleY || 1));
+        }
+
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawPolygonDraft() {
+      if (polygonDraft.length === 0) {
+        return;
+      }
+
+      ctx.save();
+      ctx.lineWidth = currentStrokeWidth();
+      ctx.strokeStyle = args.strokeColor || "#aee2db";
+      ctx.fillStyle = args.fillColor || "rgba(174, 226, 219, 0.18)";
+
+      ctx.beginPath();
+      ctx.moveTo(polygonDraft[0].x, polygonDraft[0].y);
+
+      for (let i = 1; i < polygonDraft.length; i += 1) {
+        ctx.lineTo(polygonDraft[i].x, polygonDraft[i].y);
+      }
+
+      if (hoverPoint) {
+        ctx.lineTo(hoverPoint.x, hoverPoint.y);
+      }
+
+      ctx.stroke();
+
+      for (const point of polygonDraft) {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (backgroundImage) {
+        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = args.backgroundColor || getComputedStyle(document.documentElement)
+          .getPropertyValue("--canvas-bg")
+          .trim() || "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      objects.forEach((obj, index) => drawObject(obj, index === selectedIndex));
+
+      if (draftRect) {
+        drawObject(draftRect, false);
+      }
+
+      drawPolygonDraft();
+    }
+
+    function cloneObjects() {
+      return objects.map((obj) => JSON.parse(JSON.stringify(obj)));
+    }
+
+    function emitValue() {
+      const value = {
+        version: "meinlab-annotation-canvas-1.0",
+        objects: cloneObjects(),
+        background: "",
+      };
+
+      Streamlit.setComponentValue(value);
+      updateToolbar();
+    }
+
+    function updateToolbar() {
+      undoButton.disabled = objects.length === 0;
+      deleteButton.disabled = selectedIndex < 0 || selectedIndex >= objects.length;
+      clearButton.disabled = objects.length === 0 && polygonDraft.length === 0;
+      finishButton.disabled = args.drawingMode !== "polygon" || polygonDraft.length < 3;
+
+      if (args.drawingMode === "polygon" && polygonDraft.length > 0) {
+        statusEl.textContent = `Polygon points: ${polygonDraft.length}`;
+      } else {
+        statusEl.textContent = `${objects.length} object${objects.length === 1 ? "" : "s"}`;
+      }
+    }
+
+    function hitTest(point) {
+      for (let i = objects.length - 1; i >= 0; i -= 1) {
+        const obj = objects[i];
+
+        if (obj.type === "rect") {
+          const right = obj.left + obj.width * (obj.scaleX || 1);
+          const bottom = obj.top + obj.height * (obj.scaleY || 1);
+
+          if (point.x >= obj.left && point.x <= right && point.y >= obj.top && point.y <= bottom) {
+            return i;
+          }
+        } else if (obj.type === "polygon" && pointInPolygon(point, obj)) {
+          return i;
+        }
+      }
+
+      return -1;
+    }
+
+    function pointInPolygon(point, obj) {
+      const points = obj.points.map((p) => ({
+        x: obj.left + p.x * (obj.scaleX || 1),
+        y: obj.top + p.y * (obj.scaleY || 1),
+      }));
+
+      let inside = false;
+
+      for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+        const xi = points[i].x;
+        const yi = points[i].y;
+        const xj = points[j].x;
+        const yj = points[j].y;
+        const intersects = ((yi > point.y) !== (yj > point.y))
+          && (point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi);
+
+        if (intersects) {
+          inside = !inside;
+        }
+      }
+
+      return inside;
+    }
+
+    function distance(first, second) {
+      return Math.hypot(first.x - second.x, first.y - second.y);
+    }
+
+    function cleanPolygonPoints(points) {
+      const cleaned = [];
+
+      for (const point of points) {
+        const previous = cleaned[cleaned.length - 1];
+
+        if (!previous || distance(previous, point) > 2) {
+          cleaned.push(point);
+        }
+      }
+
+      if (cleaned.length > 2 && distance(cleaned[0], cleaned[cleaned.length - 1]) <= 8) {
+        cleaned.pop();
+      }
+
+      return cleaned;
+    }
+
+    function finishPolygon() {
+      const points = cleanPolygonPoints(polygonDraft);
+
+      if (points.length >= 3) {
+        objects.push(makePolygonObject(points));
+        selectedIndex = objects.length - 1;
+        polygonDraft = [];
+        hoverPoint = null;
+        emitValue();
+      }
+
+      redraw();
+      updateToolbar();
+    }
+
+    function addPolygonPoint(point) {
+      if (polygonDraft.length >= 3 && distance(point, polygonDraft[0]) <= 10) {
+        finishPolygon();
+        return;
+      }
+
+      polygonDraft.push(point);
+      selectedIndex = -1;
+      redraw();
+      updateToolbar();
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const point = getPointerPoint(event);
+
+      if (args.drawingMode === "polygon") {
+        if (event.button === 2) {
+          finishPolygon();
+          return;
+        }
+
+        addPolygonPoint(point);
+        return;
+      }
+
+      if (event.button !== 0) {
+        return;
+      }
+
+      pointerIsDown = true;
+      startPoint = point;
+      draftRect = makeRectObject(point, point);
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const point = getPointerPoint(event);
+
+      if (args.drawingMode === "polygon") {
+        hoverPoint = point;
+        redraw();
+        return;
+      }
+
+      if (!pointerIsDown || !startPoint) {
+        return;
+      }
+
+      draftRect = makeRectObject(startPoint, point);
+      redraw();
+    });
+
+    canvas.addEventListener("pointerup", (event) => {
+      event.preventDefault();
+
+      if (args.drawingMode === "polygon") {
+        return;
+      }
+
+      const point = getPointerPoint(event);
+
+      if (pointerIsDown && draftRect) {
+        if (draftRect.width >= 4 && draftRect.height >= 4) {
+          objects.push(draftRect);
+          selectedIndex = objects.length - 1;
+          emitValue();
+        } else {
+          selectedIndex = hitTest(point);
+        }
+      }
+
+      pointerIsDown = false;
+      startPoint = null;
+      draftRect = null;
+
+      try {
+        canvas.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // Pointer capture may already be released by the browser.
+      }
+
+      redraw();
+      updateToolbar();
+    });
+
+    canvas.addEventListener("pointerleave", () => {
+      if (args.drawingMode === "polygon") {
+        hoverPoint = null;
+        redraw();
+      }
+    });
+
+    canvas.addEventListener("dblclick", (event) => {
+      if (args.drawingMode === "polygon") {
+        event.preventDefault();
+        finishPolygon();
+      }
+    });
+
+    canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+
+    undoButton.addEventListener("click", () => {
+      if (polygonDraft.length > 0) {
+        polygonDraft.pop();
+        redraw();
+        updateToolbar();
+        return;
+      }
+
+      if (objects.length === 0) {
+        return;
+      }
+
+      objects.pop();
+      selectedIndex = Math.min(selectedIndex, objects.length - 1);
+      emitValue();
+      redraw();
+    });
+
+    deleteButton.addEventListener("click", () => {
+      if (selectedIndex < 0 || selectedIndex >= objects.length) {
+        return;
+      }
+
+      objects.splice(selectedIndex, 1);
+      selectedIndex = -1;
+      emitValue();
+      redraw();
+    });
+
+    finishButton.addEventListener("click", finishPolygon);
+
+    clearButton.addEventListener("click", () => {
+      objects = [];
+      polygonDraft = [];
+      hoverPoint = null;
+      selectedIndex = -1;
+      emitValue();
+      redraw();
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        polygonDraft = [];
+        draftRect = null;
+        pointerIsDown = false;
+        redraw();
+        updateToolbar();
+      } else if (event.key === "Enter" && args.drawingMode === "polygon") {
+        finishPolygon();
+      } else if ((event.key === "Delete" || event.key === "Backspace") && selectedIndex >= 0) {
+        objects.splice(selectedIndex, 1);
+        selectedIndex = -1;
+        emitValue();
+        redraw();
+      }
+    });
+
+    window.addEventListener("message", (event) => {
+      if (event.data && event.data.type === Streamlit.RENDER_EVENT) {
+        onRender(event);
+      }
+    });
+
+    Streamlit.setComponentReady();
+  </script>
+</body>
+</html>
