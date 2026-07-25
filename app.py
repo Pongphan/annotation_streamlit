@@ -814,7 +814,7 @@ with st.container(border=True):
                 "Stroke width",
                 min_value=1,
                 max_value=10,
-                value=3
+                value=1
             )
 
         with control_col2:
@@ -943,66 +943,6 @@ if canvas_result.json_data is not None:
             }
         )
 
-
-# ============================================================
-# Editable metadata table
-# ============================================================
-st.subheader("3.2 Annotation Class and Type Assignment")
-
-if len(raw_objects) > 0:
-    meta_records = []
-
-    for item in raw_objects:
-        meta_records.append(
-            {
-                "index": item["index"],
-                "object_key": item["object_key"],
-                "canvas_type": item["canvas_type"],
-                "class_id": item["class_id"],
-                "annotation_type": item["annotation_type"],
-            }
-        )
-
-    meta_df = pd.DataFrame(meta_records)
-
-    edited_meta_df = st.data_editor(
-        meta_df,
-        use_container_width=True,
-        column_config={
-            "class_id": st.column_config.SelectboxColumn(
-                "class_id",
-                options=sorted(list(class_config.keys())),
-                required=True
-            ),
-            "annotation_type": st.column_config.SelectboxColumn(
-                "annotation_type",
-                options=["rectangle", "polygon", "crop image"],
-                required=True
-            ),
-            "object_key": st.column_config.TextColumn(
-                "object_key",
-                disabled=True
-            ),
-        },
-        disabled=["index", "object_key", "canvas_type"],
-        key="annotation_metadata_editor"
-    )
-
-    for _, row in edited_meta_df.iterrows():
-        object_key = row["object_key"]
-        class_id = int(row["class_id"])
-        annotation_type = row["annotation_type"]
-
-        st.session_state.object_meta[object_key] = {
-            "class_id": class_id,
-            "annotation_type": annotation_type,
-        }
-
-else:
-    edited_meta_df = pd.DataFrame()
-    st.info("No annotation objects yet. Draw on the image canvas.")
-
-
 # ============================================================
 # Convert canvas objects to final annotation rows
 # ============================================================
@@ -1089,61 +1029,6 @@ for item in raw_objects:
             }
         )
 
-
-# ============================================================
-# Annotation output table
-# ============================================================
-st.subheader("3.3Annotation Output Table")
-
-table_records = []
-
-for row in annotation_rows:
-    if row["annotation_type"] in ["rectangle", "crop image"]:
-        x1, y1, x2, y2 = row["absolute_points"]
-        x_center, y_center, w, h = row["yolo_values"]
-
-        table_records.append(
-            {
-                "index": row["index"],
-                "type": row["annotation_type"],
-                "class_id": row["class_id"],
-                "class_name": row["class_name"],
-                "x1": round(x1, 2),
-                "y1": round(y1, 2),
-                "x2": round(x2, 2),
-                "y2": round(y2, 2),
-                "yolo": (
-                    f"{row['class_id']} "
-                    f"{x_center:.6f} {y_center:.6f} "
-                    f"{w:.6f} {h:.6f}"
-                ),
-            }
-        )
-
-    elif row["annotation_type"] == "polygon":
-        yolo_values = " ".join(
-            [f"{v:.6f}" for v in row["yolo_values"]]
-        )
-
-        table_records.append(
-            {
-                "index": row["index"],
-                "type": row["annotation_type"],
-                "class_id": row["class_id"],
-                "class_name": row["class_name"],
-                "num_points": len(row["absolute_points"]),
-                "yolo": f"{row['class_id']} {yolo_values}",
-            }
-        )
-
-annotation_table = pd.DataFrame(table_records)
-
-if len(annotation_table) > 0:
-    st.dataframe(annotation_table, use_container_width=True)
-else:
-    st.info("No valid annotations generated yet.")
-
-
 # ============================================================
 # Generate outputs
 # ============================================================
@@ -1164,7 +1049,7 @@ crop_outputs = crop_regions(
 # ============================================================
 # Preview YOLO label
 # ============================================================
-st.subheader("3.4 YOLO Label Preview")
+st.subheader("3.2 YOLO Label Preview")
 
 if label_text.strip():
     st.code(label_text, language="text")
@@ -1175,7 +1060,7 @@ else:
 # ============================================================
 # Preview annotated image
 # ============================================================
-st.subheader("3.5 Annotated Image Preview")
+st.subheader("3.3 Annotated Image Preview")
 st.image(
     annotated_image,
     caption="Annotated image",
@@ -1186,15 +1071,7 @@ st.image(
 # ============================================================
 # Download outputs
 # ============================================================
-st.subheader("3.6 Download Outputs")
-
-zip_bytes = build_zip_package(
-    base_filename=base_filename,
-    annotated_image=annotated_image,
-    label_text=label_text,
-    annotation_table=annotation_table,
-    crop_outputs=crop_outputs
-)
+st.subheader("3.4 Download Outputs")
 
 download_col1, download_col2, download_col3 = st.columns(3)
 
@@ -1206,25 +1083,6 @@ with download_col1:
         mime="text/plain",
         disabled=len(annotation_rows) == 0
     )
-
-with download_col2:
-    st.download_button(
-        label="Download Annotated Image",
-        data=pil_to_png_bytes(annotated_image),
-        file_name=f"{base_filename}_annotated.png",
-        mime="image/png",
-        disabled=len(annotation_rows) == 0
-    )
-
-with download_col3:
-    st.download_button(
-        label="Download ZIP Package",
-        data=zip_bytes,
-        file_name=f"{base_filename}_yolo_annotation_package.zip",
-        mime="application/zip",
-        disabled=len(annotation_rows) == 0
-    )
-
 
 # ============================================================
 # Crop preview
