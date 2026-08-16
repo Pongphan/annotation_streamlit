@@ -6,6 +6,7 @@ A lightweight Streamlit app for image annotation and YOLO-format export.
 
 - Upload JPG, PNG, BMP, TIFF, or TIF images.
 - Draw rectangle, polygon, or crop annotations.
+- Resize the latest rectangle or crop by dragging its eight canvas handles.
 - Configure class IDs, names, and colors.
 - Edit class/type metadata for drawn objects.
 - Preview YOLO labels and the annotated image.

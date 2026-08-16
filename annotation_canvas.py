@@ -1,6 +1,8 @@
 import base64
+import copy
 import hashlib
 import io
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -11,7 +13,7 @@ from PIL import Image
 
 
 COMPONENT_DIR = Path(__file__).parent / "annotation_canvas_component"
-EMPTY_DRAWING = {"version": "meinlab-annotation-canvas-1.0", "objects": []}
+EMPTY_DRAWING = {"version": "meinlab-annotation-canvas-1.1", "objects": []}
 
 _annotation_canvas = components.declare_component(
     "meinlab_annotation_canvas",
@@ -43,9 +45,26 @@ def _normalize_drawing(drawing: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(objects, list):
         objects = []
 
+    normalized_objects = []
+
+    for index, raw_object in enumerate(objects):
+        if not isinstance(raw_object, dict):
+            continue
+
+        obj = copy.deepcopy(raw_object)
+
+        if not obj.get("_annotationId"):
+            serialized = json.dumps(obj, sort_keys=True, default=str)
+            digest = hashlib.md5(
+                f"{index}:{serialized}".encode("utf-8")
+            ).hexdigest()
+            obj["_annotationId"] = f"annotation-{digest}"
+
+        normalized_objects.append(obj)
+
     return {
         "version": drawing.get("version", EMPTY_DRAWING["version"]),
-        "objects": objects,
+        "objects": normalized_objects,
         "background": drawing.get("background", ""),
     }
 

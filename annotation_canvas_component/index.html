@@ -162,6 +162,12 @@
     let draftRect = null;
     let polygonDraft = [];
     let hoverPoint = null;
+    let resizeState = null;
+    let objectIdCounter = 0;
+
+    const RESIZE_HANDLE_RADIUS = 6;
+    const RESIZE_HIT_RADIUS = 11;
+    const MIN_RECT_SIZE = 4;
 
     function onRender(event) {
       args = event.data.args || {};
@@ -179,9 +185,10 @@
 
       if (nextConfig !== componentConfig) {
         objects = normalizeObjects(args.initialDrawing);
-        selectedIndex = -1;
+        selectedIndex = findLatestRectIndex();
         polygonDraft = [];
         hoverPoint = null;
+        resizeState = null;
         componentConfig = nextConfig;
       }
 
@@ -209,6 +216,7 @@
         .map((obj) => {
           if (obj.type === "rect") {
             return {
+              _annotationId: obj._annotationId || createObjectId(),
               type: "rect",
               left: Number(obj.left || 0),
               top: Number(obj.top || 0),
@@ -223,6 +231,7 @@
           }
 
           return {
+            _annotationId: obj._annotationId || createObjectId(),
             type: "polygon",
             left: Number(obj.left || 0),
             top: Number(obj.top || 0),
@@ -239,6 +248,21 @@
             strokeWidth: Number(obj.strokeWidth || args.strokeWidth || 3),
           };
         });
+    }
+
+    function createObjectId() {
+      objectIdCounter += 1;
+      return `annotation-${Date.now().toString(36)}-${objectIdCounter.toString(36)}`;
+    }
+
+    function findLatestRectIndex() {
+      for (let index = objects.length - 1; index >= 0; index -= 1) {
+        if (objects[index].type === "rect") {
+          return index;
+        }
+      }
+
+      return -1;
     }
 
     function loadBackground(url) {
@@ -293,6 +317,7 @@
       const height = Math.abs(second.y - first.y);
 
       return {
+        _annotationId: createObjectId(),
         type: "rect",
         left,
         top,
@@ -308,6 +333,7 @@
 
     function makePolygonObject(points) {
       return {
+        _annotationId: createObjectId(),
         type: "polygon",
         left: 0,
         top: 0,
@@ -353,6 +379,138 @@
       }
 
       ctx.restore();
+    }
+
+    function rectBounds(obj) {
+      const x2 = obj.left + obj.width * (obj.scaleX || 1);
+      const y2 = obj.top + obj.height * (obj.scaleY || 1);
+
+      return {
+        left: Math.min(obj.left, x2),
+        top: Math.min(obj.top, y2),
+        right: Math.max(obj.left, x2),
+        bottom: Math.max(obj.top, y2),
+      };
+    }
+
+    function resizeHandles(obj) {
+      const bounds = rectBounds(obj);
+      const centerX = (bounds.left + bounds.right) / 2;
+      const centerY = (bounds.top + bounds.bottom) / 2;
+
+      return [
+        { name: "nw", x: bounds.left, y: bounds.top, cursor: "nwse-resize" },
+        { name: "n", x: centerX, y: bounds.top, cursor: "ns-resize" },
+        { name: "ne", x: bounds.right, y: bounds.top, cursor: "nesw-resize" },
+        { name: "e", x: bounds.right, y: centerY, cursor: "ew-resize" },
+        { name: "se", x: bounds.right, y: bounds.bottom, cursor: "nwse-resize" },
+        { name: "s", x: centerX, y: bounds.bottom, cursor: "ns-resize" },
+        { name: "sw", x: bounds.left, y: bounds.bottom, cursor: "nesw-resize" },
+        { name: "w", x: bounds.left, y: centerY, cursor: "ew-resize" },
+      ];
+    }
+
+    function drawResizeHandles() {
+      if (args.drawingMode === "polygon" || selectedIndex < 0) {
+        return;
+      }
+
+      const obj = objects[selectedIndex];
+
+      if (!obj || obj.type !== "rect") {
+        return;
+      }
+
+      const selectionColor = getComputedStyle(document.documentElement)
+        .getPropertyValue("--selection")
+        .trim() || "#ffe8b0";
+
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = selectionColor;
+      ctx.fillStyle = getComputedStyle(document.documentElement)
+        .getPropertyValue("--canvas-bg")
+        .trim() || "#ffffff";
+
+      for (const handle of resizeHandles(obj)) {
+        ctx.beginPath();
+        ctx.rect(
+          handle.x - RESIZE_HANDLE_RADIUS,
+          handle.y - RESIZE_HANDLE_RADIUS,
+          RESIZE_HANDLE_RADIUS * 2,
+          RESIZE_HANDLE_RADIUS * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function hitResizeHandle(point) {
+      if (args.drawingMode === "polygon" || selectedIndex < 0) {
+        return null;
+      }
+
+      const obj = objects[selectedIndex];
+
+      if (!obj || obj.type !== "rect") {
+        return null;
+      }
+
+      for (const handle of resizeHandles(obj)) {
+        if (
+          Math.abs(point.x - handle.x) <= RESIZE_HIT_RADIUS
+          && Math.abs(point.y - handle.y) <= RESIZE_HIT_RADIUS
+        ) {
+          return handle;
+        }
+      }
+
+      return null;
+    }
+
+    function resizeSelectedRect(point) {
+      if (!resizeState || selectedIndex < 0) {
+        return;
+      }
+
+      const obj = objects[selectedIndex];
+
+      if (!obj || obj.type !== "rect") {
+        return;
+      }
+
+      const original = resizeState.bounds;
+      const handle = resizeState.handle;
+      let left = original.left;
+      let top = original.top;
+      let right = original.right;
+      let bottom = original.bottom;
+
+      if (handle.includes("w")) {
+        left = Math.max(0, Math.min(point.x, right - MIN_RECT_SIZE));
+      }
+
+      if (handle.includes("e")) {
+        right = Math.min(canvas.width, Math.max(point.x, left + MIN_RECT_SIZE));
+      }
+
+      if (handle.includes("n")) {
+        top = Math.max(0, Math.min(point.y, bottom - MIN_RECT_SIZE));
+      }
+
+      if (handle.includes("s")) {
+        bottom = Math.min(canvas.height, Math.max(point.y, top + MIN_RECT_SIZE));
+      }
+
+      obj.left = left;
+      obj.top = top;
+      obj.width = right - left;
+      obj.height = bottom - top;
+      obj.scaleX = 1;
+      obj.scaleY = 1;
     }
 
     function drawPolygonDraft() {
@@ -401,6 +559,7 @@
       }
 
       objects.forEach((obj, index) => drawObject(obj, index === selectedIndex));
+      drawResizeHandles();
 
       if (draftRect) {
         drawObject(draftRect, false);
@@ -415,7 +574,7 @@
 
     function emitValue() {
       const value = {
-        version: "meinlab-annotation-canvas-1.0",
+        version: "meinlab-annotation-canvas-1.1",
         objects: cloneObjects(),
         background: "",
       };
@@ -432,6 +591,16 @@
 
       if (args.drawingMode === "polygon" && polygonDraft.length > 0) {
         statusEl.textContent = `Polygon points: ${polygonDraft.length}`;
+      } else if (
+        args.drawingMode !== "polygon"
+        && selectedIndex >= 0
+        && objects[selectedIndex]
+        && objects[selectedIndex].type === "rect"
+      ) {
+        const bounds = rectBounds(objects[selectedIndex]);
+        const width = Math.round(bounds.right - bounds.left);
+        const height = Math.round(bounds.bottom - bounds.top);
+        statusEl.textContent = `Drag handles to resize selected box · ${width} x ${height}px`;
       } else {
         statusEl.textContent = `${objects.length} object${objects.length === 1 ? "" : "s"}`;
       }
@@ -547,6 +716,21 @@
         return;
       }
 
+      const resizeHandle = hitResizeHandle(point);
+
+      if (resizeHandle) {
+        resizeState = {
+          handle: resizeHandle.name,
+          bounds: rectBounds(objects[selectedIndex]),
+        };
+        pointerIsDown = true;
+        startPoint = null;
+        draftRect = null;
+        canvas.style.cursor = resizeHandle.cursor;
+        canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+
       pointerIsDown = true;
       startPoint = point;
       draftRect = makeRectObject(point, point);
@@ -560,6 +744,18 @@
         hoverPoint = point;
         redraw();
         return;
+      }
+
+      if (resizeState) {
+        resizeSelectedRect(point);
+        redraw();
+        updateToolbar();
+        return;
+      }
+
+      if (!pointerIsDown) {
+        const resizeHandle = hitResizeHandle(point);
+        canvas.style.cursor = resizeHandle ? resizeHandle.cursor : "crosshair";
       }
 
       if (!pointerIsDown || !startPoint) {
@@ -578,6 +774,24 @@
       }
 
       const point = getPointerPoint(event);
+
+      if (pointerIsDown && resizeState) {
+        resizeSelectedRect(point);
+        resizeState = null;
+        pointerIsDown = false;
+        canvas.style.cursor = "crosshair";
+        emitValue();
+
+        try {
+          canvas.releasePointerCapture(event.pointerId);
+        } catch (error) {
+          // Pointer capture may already be released by the browser.
+        }
+
+        redraw();
+        updateToolbar();
+        return;
+      }
 
       if (pointerIsDown && draftRect) {
         if (draftRect.width >= 4 && draftRect.height >= 4) {
@@ -666,6 +880,8 @@
         polygonDraft = [];
         draftRect = null;
         pointerIsDown = false;
+        resizeState = null;
+        canvas.style.cursor = "crosshair";
         redraw();
         updateToolbar();
       } else if (event.key === "Enter" && args.drawingMode === "polygon") {

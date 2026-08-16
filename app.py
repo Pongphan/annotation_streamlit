@@ -428,13 +428,9 @@ def resize_for_display(
     return display_image, scale
 
 
-def make_object_key(obj: Dict[str, Any]) -> str:
+def make_geometry_key(obj: Dict[str, Any]) -> str:
     """
-    Create a stable-ish key from canvas object geometry.
-
-    This is used to store class_id and annotation_type per drawn object.
-    If the object is moved or resized, the key may change, so the app will
-    treat it as a new object. This is acceptable for a simple annotator.
+    Create the legacy object key from canvas geometry.
     """
     essential = {
         "type": obj.get("type"),
@@ -449,6 +445,16 @@ def make_object_key(obj: Dict[str, Any]) -> str:
 
     key_string = json.dumps(essential, sort_keys=True)
     return hashlib.md5(key_string.encode("utf-8")).hexdigest()
+
+
+def make_object_key(obj: Dict[str, Any]) -> str:
+    """Return the stable canvas ID, with geometry as a legacy fallback."""
+    annotation_id = obj.get("_annotationId")
+
+    if annotation_id:
+        return str(annotation_id)
+
+    return make_geometry_key(obj)
 
 
 def rect_to_original_coordinates(
@@ -894,6 +900,10 @@ with st.container(border=True):
         """,
         unsafe_allow_html=True,
     )
+    st.caption(
+        "The latest rectangle or crop is selected automatically. "
+        "Drag any corner or side handle to resize it."
+    )
 
     canvas_result = st_canvas(
         fill_color=canvas_fill_color,
@@ -923,6 +933,15 @@ if canvas_result.json_data is not None:
             continue
 
         object_key = make_object_key(obj)
+        legacy_key = make_geometry_key(obj)
+
+        if (
+            object_key not in st.session_state.object_meta
+            and legacy_key in st.session_state.object_meta
+        ):
+            st.session_state.object_meta[object_key] = (
+                st.session_state.object_meta.pop(legacy_key)
+            )
 
         if object_key not in st.session_state.object_meta:
             st.session_state.object_meta[object_key] = {
